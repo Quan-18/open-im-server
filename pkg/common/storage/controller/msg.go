@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 
 	"github.com/openimsdk/tools/mq"
 	"github.com/openimsdk/tools/utils/jsonutil"
@@ -123,6 +124,9 @@ type commonMsgDatabase struct {
 }
 
 func (db *commonMsgDatabase) MsgToMQ(ctx context.Context, key string, msg2mq *sdkws.MsgData) error {
+	if err := stablepolicy.CheckMessage(msg2mq); err != nil {
+		return err
+	}
 	data, err := proto.Marshal(msg2mq)
 	if err != nil {
 		return err
@@ -798,7 +802,22 @@ func (db *commonMsgDatabase) handlerQuote(ctx context.Context, userID, conversat
 }
 
 func (db *commonMsgDatabase) GetMessageBySeqs(ctx context.Context, conversationID string, userID string, seqs []int64) ([]*sdkws.MsgData, error) {
-	msgs, err := db.msgCache.GetMessageBySeqs(ctx, conversationID, seqs)
+	var msgs []*model.MsgInfoModel
+	var err error
+	if stablepolicy.Protected(conversationID) {
+		max, e := db.seqConversation.GetMaxSeq(ctx, conversationID)
+		if e != nil {
+			return nil, e
+		}
+		for _, seq := range seqs {
+			if seq < 1 || seq > max {
+				return nil, errs.ErrArgs.WrapMsg("sequence outside committed history")
+			}
+		}
+		msgs, err = db.msgDocDatabase.FindSeqs(ctx, conversationID, seqs)
+	} else {
+		msgs, err = db.msgCache.GetMessageBySeqs(ctx, conversationID, seqs)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -816,6 +835,9 @@ func (db *commonMsgDatabase) GetMessageBySeqs(ctx context.Context, conversationI
 		if v, ok := seqMsgs[seq]; ok {
 			res = append(res, convert.MsgDB2Pb(v.Msg))
 		} else {
+			if stablepolicy.Protected(conversationID) {
+				return nil, stablepolicy.ErrIntegrity
+			}
 			res = append(res, &sdkws.MsgData{Seq: seq, Status: constant.MsgStatusHasDeleted})
 		}
 	}

@@ -3,12 +3,15 @@ package mgo
 import (
 	"context"
 	"fmt"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
@@ -41,10 +44,16 @@ type MsgMgo struct {
 }
 
 func (m *MsgMgo) Create(ctx context.Context, msg *model.MsgDocModel) error {
+	if err := stablepolicy.CheckWrite(msg.DocID); err != nil {
+		return err
+	}
 	return mongoutil.InsertMany(ctx, m.coll, []*model.MsgDocModel{msg})
 }
 
 func (m *MsgMgo) UpdateMsg(ctx context.Context, docID string, index int64, key string, value any) (*mongo.UpdateResult, error) {
+	if err := stablepolicy.CheckWrite(docID); err != nil {
+		return nil, err
+	}
 	var field string
 	if key == "" {
 		field = fmt.Sprintf("msgs.%d", index)
@@ -57,6 +66,9 @@ func (m *MsgMgo) UpdateMsg(ctx context.Context, docID string, index int64, key s
 }
 
 func (m *MsgMgo) PushUnique(ctx context.Context, docID string, index int64, key string, value any) (*mongo.UpdateResult, error) {
+	if err := stablepolicy.CheckWrite(docID); err != nil {
+		return nil, err
+	}
 	var field string
 	if key == "" {
 		field = fmt.Sprintf("msgs.%d", index)
@@ -217,6 +229,9 @@ func (m *MsgMgo) GetMsgDocModelByIndex(ctx context.Context, conversationID strin
 }
 
 func (m *MsgMgo) DeleteMsgsInOneDocByIndex(ctx context.Context, docID string, indexes []int) error {
+	if err := stablepolicy.CheckWrite(docID); err != nil {
+		return err
+	}
 	update := bson.M{
 		"$set": bson.M{},
 	}
@@ -917,7 +932,7 @@ func (m *MsgMgo) RangeGroupSendCount(ctx context.Context, start time.Time, end t
 }
 
 func (m *MsgMgo) GetRandBeforeMsg(ctx context.Context, ts int64, limit int) ([]*model.MsgDocModel, error) {
-	return mongoutil.Aggregate[*model.MsgDocModel](ctx, m.coll, []bson.M{
+	pipeline := []bson.M{
 		{
 			"$match": bson.M{
 				"msgs": bson.M{
@@ -944,10 +959,17 @@ func (m *MsgMgo) GetRandBeforeMsg(ctx context.Context, ts int64, limit int) ([]*
 				"size": limit,
 			},
 		},
-	})
+	}
+	if stablepolicy.Protected("si_") {
+		pipeline = append([]bson.M{{"$match": bson.M{"doc_id": bson.M{"$not": bson.M{"$regex": "^si_"}}}}}, pipeline...)
+	}
+	return mongoutil.Aggregate[*model.MsgDocModel](ctx, m.coll, pipeline)
 }
 
 func (m *MsgMgo) DeleteDoc(ctx context.Context, docID string) error {
+	if err := stablepolicy.CheckWrite(docID); err != nil {
+		return err
+	}
 	return mongoutil.DeleteOne(ctx, m.coll, bson.M{"doc_id": docID})
 }
 
@@ -1004,6 +1026,15 @@ func (m *MsgMgo) GetLastMessageSeqByTime(ctx context.Context, conversationID str
 }
 
 func (m *MsgMgo) GetLastMessage(ctx context.Context, conversationID string) (*model.MsgInfoModel, error) {
+	if stablepolicy.Protected(conversationID) {
+		copy := *m
+		var err error
+		copy.coll, err = m.coll.Clone(options.Collection().SetReadConcern(readconcern.Majority()).SetReadPreference(readpref.Primary()))
+		if err != nil {
+			return nil, err
+		}
+		m = &copy
+	}
 	pipeline := []bson.M{
 		{
 			"$match": bson.M{
@@ -1185,6 +1216,15 @@ func (m *MsgMgo) findBeforeSendTime(ctx context.Context, conversationID string, 
 }
 
 func (m *MsgMgo) FindSeqs(ctx context.Context, conversationID string, seqs []int64) ([]*model.MsgInfoModel, error) {
+	if stablepolicy.Protected(conversationID) {
+		copy := *m
+		var err error
+		copy.coll, err = m.coll.Clone(options.Collection().SetReadConcern(readconcern.Majority()).SetReadPreference(readpref.Primary()))
+		if err != nil {
+			return nil, err
+		}
+		m = &copy
+	}
 	if len(seqs) == 0 {
 		return nil, nil
 	}

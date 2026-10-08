@@ -22,6 +22,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database/mgo"
 	"github.com/openimsdk/open-im-server/v3/pkg/dbbuild"
 	"github.com/openimsdk/open-im-server/v3/pkg/mqbuild"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/mq"
 	"github.com/openimsdk/tools/utils/runtimeenv"
@@ -65,6 +66,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	if err := stablepolicy.VerifyMode(ctx, mgocli.GetDB(), config.Share.StableMessage); err != nil {
+		return err
+	}
+	stablepolicy.Configure(config.Share.StableMessage.Enabled)
 	rdb, err := dbb.Redis(ctx)
 	if err != nil {
 		return err
@@ -113,6 +118,12 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 		return err
 	}
 	historyMongoHandler := NewOnlineHistoryMongoConsumerHandler(msgTransferDatabase, config)
+	historyHandler.legacyGuard = func(c context.Context, m mq.Message) (bool, error) {
+		return stablepolicy.GuardRedisMessage(c, mgocli.GetDB(), m)
+	}
+	historyMongoHandler.legacyGuard = func(c context.Context, m mq.Message) (bool, error) {
+		return stablepolicy.GuardMongoMessage(c, mgocli.GetDB(), m)
+	}
 
 	msgTransfer := &MsgTransfer{
 		historyConsumer:      historyConsumer,
@@ -140,8 +151,7 @@ func (m *MsgTransfer) Start(ctx context.Context) error {
 
 	go func() {
 		fn := func(msg mq.Message) error {
-			m.historyMongoHandler.HandleChatWs2Mongo(msg)
-			return nil
+			return m.historyMongoHandler.HandleChatWs2Mongo(msg)
 		}
 		for {
 			if err := m.historyMongoConsumer.Subscribe(m.ctx, fn); err != nil {

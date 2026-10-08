@@ -140,7 +140,7 @@ func (s *Server) pushToUser(ctx context.Context, userID string, msgData *sdkws.M
 			UserID: userID,
 		}
 	}
-	log.ZDebug(ctx, "push user online", "clients", clients, "userID", userID)
+	log.ZDebug(ctx, "push user online", "connectionCount", len(clients), "userID", userID)
 	result := &msggateway.SingleMsgToUserResults{
 		UserID: userID,
 		Resp:   make([]*msggateway.SingleMsgToUserPlatform, 0, len(clients)),
@@ -228,7 +228,7 @@ func (s *Server) KickUserOffline(ctx context.Context, req *msggateway.KickUserOf
 		}
 
 		for _, client := range clients {
-			log.ZDebug(ctx, "kick user offline", "userID", v, "platformID", req.PlatformID, "client", client)
+			log.ZDebug(ctx, "kick user offline", "userID", v, "platformID", req.PlatformID, "connectionID", client.ctx.GetConnID())
 			if err := client.longConnServer.KickUserConn(client); err != nil {
 				log.ZWarn(ctx, "kick user offline failed", err, "userID", v, "platformID", req.PlatformID)
 			}

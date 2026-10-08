@@ -28,6 +28,7 @@ type Config struct {
 }
 
 func Start(ctx context.Context, conf *Config, client discovery.SvcDiscoveryRegistry, service grpc.ServiceRegistrar) error {
+	config.SetStableMode(conf.Share.StableMessage.Enabled)
 	log.CInfo(ctx, "CRON-TASK server is initializing", "runTimeEnv", runtimeenv.RuntimeEnvironment(), "chatRecordsClearTime", conf.CronTask.CronExecuteTime, "msgDestructTime", conf.CronTask.RetainChatRecords)
 	if conf.CronTask.RetainChatRecords < 1 {
 		log.ZInfo(ctx, "disable cron")
@@ -112,6 +113,9 @@ type cronServer struct {
 }
 
 func (c *cronServer) registerClearS3() error {
+	if config.StableMode() {
+		return nil
+	}
 	if c.config.CronTask.FileExpireTime <= 0 || len(c.config.CronTask.DeleteObjectType) == 0 {
 		log.ZInfo(c.ctx, "disable scheduled cleanup of s3", "fileExpireTime", c.config.CronTask.FileExpireTime, "deleteObjectType", c.config.CronTask.DeleteObjectType)
 		return nil

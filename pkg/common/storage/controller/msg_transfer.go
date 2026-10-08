@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
 	"github.com/openimsdk/protocol/constant"
@@ -71,6 +72,9 @@ type msgTransferDatabase struct {
 }
 
 func (db *msgTransferDatabase) BatchInsertChat2DB(ctx context.Context, conversationID string, msgList []*sdkws.MsgData, currentMaxSeq int64) error {
+	if err := stablepolicy.CheckWrite(conversationID); err != nil {
+		return err
+	}
 	if len(msgList) == 0 {
 		return errs.ErrArgs.WrapMsg("msgList is empty")
 	}
@@ -199,6 +203,9 @@ func (db *msgTransferDatabase) DeleteMessagesFromCache(ctx context.Context, conv
 }
 
 func (db *msgTransferDatabase) BatchInsertChat2Cache(ctx context.Context, conversationID string, msgs []*sdkws.MsgData) (seq int64, isNew bool, userHasReadMap map[string]int64, err error) {
+	if err := stablepolicy.CheckWrite(conversationID); err != nil {
+		return 0, false, nil, err
+	}
 	lenList := len(msgs)
 	if int64(lenList) > db.msgTable.GetSingleGocMsgNum() {
 		return 0, false, nil, errs.New("message count exceeds limit", "limit", db.msgTable.GetSingleGocMsgNum()).Wrap()

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/config"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 	"strconv"
 	"time"
 
@@ -137,6 +139,17 @@ func (s *seqConversationCacheRedis) batchGetMaxSeqWithTime(ctx context.Context, 
 }
 
 func (s *seqConversationCacheRedis) GetMaxSeqs(ctx context.Context, conversationIDs []string) (map[string]int64, error) {
+	if config.StableMode() {
+		res := make(map[string]int64)
+		for _, id := range conversationIDs {
+			value, err := s.GetMaxSeq(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			res[id] = value
+		}
+		return res, nil
+	}
 	switch len(conversationIDs) {
 	case 0:
 		return map[string]int64{}, nil
@@ -170,6 +183,17 @@ func (s *seqConversationCacheRedis) GetMaxSeqs(ctx context.Context, conversation
 }
 
 func (s *seqConversationCacheRedis) GetMaxSeqsWithTime(ctx context.Context, conversationIDs []string) (map[string]database.SeqTime, error) {
+	if config.StableMode() {
+		res := make(map[string]database.SeqTime)
+		for _, id := range conversationIDs {
+			value, err := s.GetMaxSeqWithTime(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			res[id] = value
+		}
+		return res, nil
+	}
 	switch len(conversationIDs) {
 	case 0:
 		return map[string]database.SeqTime{}, nil
@@ -361,6 +385,12 @@ func (s *seqConversationCacheRedis) getMallocSize(conversationID string, size in
 }
 
 func (s *seqConversationCacheRedis) Malloc(ctx context.Context, conversationID string, size int64) (int64, error) {
+	if stablepolicy.Protected(conversationID) {
+		if size > 0 {
+			return 0, stablepolicy.ErrLegacy
+		}
+		return s.mgo.GetMaxSeq(ctx, conversationID)
+	}
 	seq, _, err := s.mallocTime(ctx, conversationID, size)
 	return seq, err
 }
@@ -422,6 +452,15 @@ func (s *seqConversationCacheRedis) GetMaxSeq(ctx context.Context, conversationI
 }
 
 func (s *seqConversationCacheRedis) GetMaxSeqWithTime(ctx context.Context, conversationID string) (database.SeqTime, error) {
+	if stablepolicy.Protected(conversationID) {
+		reader, ok := s.mgo.(interface {
+			GetStableSeq(context.Context, string) (database.SeqTime, error)
+		})
+		if !ok {
+			return database.SeqTime{}, errs.New("stable sequence reader unavailable")
+		}
+		return reader.GetStableSeq(ctx, conversationID)
+	}
 	seq, mill, err := s.mallocTime(ctx, conversationID, 0)
 	if err != nil {
 		return database.SeqTime{}, err

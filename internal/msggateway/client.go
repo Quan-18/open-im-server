@@ -173,7 +173,7 @@ func (c *Client) handleMessage(message []byte) error {
 		[]string{binaryReq.OperationID, binaryReq.SendID, constant.PlatformIDToName(c.PlatformID), c.ctx.GetConnID()},
 	)
 
-	log.ZDebug(ctx, "gateway req message", "req", binaryReq.String())
+	log.ZDebug(ctx, "gateway req message", "requestIdentifier", binaryReq.ReqIdentifier)
 
 	var (
 		resp       []byte
@@ -247,10 +247,10 @@ func (c *Client) replyMessage(ctx context.Context, binaryReq *Req, err error, re
 		Data:          resp,
 	}
 	t := time.Now()
-	log.ZDebug(ctx, "gateway reply message", "resp", mReply.String())
+	log.ZDebug(ctx, "gateway reply message", "requestIdentifier", mReply.ReqIdentifier)
 	err = c.writeBinaryMsg(mReply)
 	if err != nil {
-		log.ZWarn(ctx, "wireBinaryMsg replyMessage", err, "resp", mReply.String())
+		log.ZWarn(ctx, "wireBinaryMsg replyMessage", err, "requestIdentifier", mReply.ReqIdentifier)
 	}
 	log.ZDebug(ctx, "wireBinaryMsg end", "time cost", time.Since(t))
 
@@ -269,7 +269,7 @@ func (c *Client) PushMessage(ctx context.Context, msgData *sdkws.MsgData) error 
 	} else {
 		msg.Msgs = m
 	}
-	log.ZDebug(ctx, "PushMessage", "msg", &msg)
+	log.ZDebug(ctx, "PushMessage", "clientMsgID", msgData.ClientMsgID, "seq", msgData.Seq)
 	data, err := proto.Marshal(&msg)
 	if err != nil {
 		return err

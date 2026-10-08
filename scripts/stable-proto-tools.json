@@ -1,0 +1,8 @@
+{
+  "go": "1.25.0",
+  "protoc": "33.0",
+  "protocWindowsArchive": "https://github.com/protocolbuffers/protobuf/releases/download/v33.0/protoc-33.0-win64.zip",
+  "protocWindowsSha256": "3742cd49c8b6bd78b6760540367eb0ff62fa70a1032e15dafe131bfaf296986a",
+  "protocGenGo": "v1.36.10",
+  "protocGenGoGrpc": "v1.5.1"
+}

@@ -16,6 +16,7 @@ package msg
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"google.golang.org/protobuf/proto"
@@ -54,6 +55,9 @@ func (m *msgServer) SendMsg(ctx context.Context, req *pbmsg.SendMsgReq) (*pbmsg.
 
 func (m *msgServer) sendMsg(ctx context.Context, req *pbmsg.SendMsgReq, before **sdkws.MsgData) (*pbmsg.SendMsgResp, error) {
 	m.encapsulateMsgData(req.MsgData)
+	if err := stablepolicy.CheckMessage(req.MsgData); err != nil {
+		return nil, err
+	}
 	switch req.MsgData.SessionType {
 	case constant.SingleChatType:
 		return m.sendMsgSingleChat(ctx, req, before)

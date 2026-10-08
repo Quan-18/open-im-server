@@ -19,6 +19,7 @@
 
 ### OpenIM developer supplement ###
 logs
+/.tools/
 .devcontainer
 components
 out-test

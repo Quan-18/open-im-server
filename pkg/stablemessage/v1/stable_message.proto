@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package openim.stablemessage.v1;
+
+option go_package = "github.com/openimsdk/open-im-server/v3/pkg/stablemessage/v1;stablemessagev1";
+
+// StableMessage 只接受经过独立验证的服务身份。
+service StableMessage {
+  rpc Submit(SubmitRequest) returns (Receipt);
+  rpc GetReceipt(GetReceiptRequest) returns (Receipt);
+  rpc ResolveOrExpire(ResolveOrExpireRequest) returns (Receipt);
+}
+
+// ImmutableDescriptor 表达不可变来源、内容摘要及技术范围。
+message ImmutableDescriptor {
+  uint32 protocol_version = 1;
+  string source_namespace = 2;
+  string source_id = 3;
+  uint32 business_encoding_version = 4;
+  bytes business_digest = 5;
+  uint32 transport_encoding_version = 6;
+  bytes transport_digest = 7;
+  string sender_id = 8;
+  string receiver_id = 9;
+  string conversation_id = 10;
+  int32 sender_platform_id = 11;
+  int32 content_type = 12;
+  int64 expires_at = 13;
+}
+
+// SubmitRequest 携带首次冻结的正文原件。
+message SubmitRequest {
+  ImmutableDescriptor descriptor = 1;
+  bytes content_bytes = 2;
+}
+
+// GetReceiptRequest 不改变提交资格或到期时间。
+message GetReceiptRequest {
+  uint32 protocol_version = 1;
+  string source_namespace = 2;
+  string source_id = 3;
+}
+
+// ResolveOrExpireRequest 无需正文即可与在途提交竞争同一来源键。
+message ResolveOrExpireRequest {
+  ImmutableDescriptor descriptor = 1;
+}
+
+// Receipt 的 status 为 committed、expired、not_found 或 not_due。
+message Receipt {
+  string status = 1;
+  ImmutableDescriptor descriptor = 2;
+  string client_msg_id = 3;
+  string server_msg_id = 4;
+  int64 seq = 5;
+  int64 committed_at = 6;
+  int64 sealed_at = 7;
+}

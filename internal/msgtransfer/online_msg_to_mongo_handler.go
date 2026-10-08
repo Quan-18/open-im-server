@@ -15,6 +15,7 @@
 package msgtransfer
 
 import (
+	"context"
 	"github.com/openimsdk/tools/mq"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
@@ -26,6 +27,7 @@ import (
 )
 
 type OnlineHistoryMongoConsumerHandler struct {
+	legacyGuard         func(context.Context, mq.Message) (bool, error)
 	msgTransferDatabase controller.MsgTransferDatabase
 	config              *Config
 	webhookClient       *webhook.Client
@@ -39,7 +41,16 @@ func NewOnlineHistoryMongoConsumerHandler(database controller.MsgTransferDatabas
 	}
 }
 
-func (mc *OnlineHistoryMongoConsumerHandler) HandleChatWs2Mongo(val mq.Message) {
+func (mc *OnlineHistoryMongoConsumerHandler) HandleChatWs2Mongo(val mq.Message) error {
+	if mc.legacyGuard != nil {
+		blocked, err := mc.legacyGuard(val.Context(), val)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return nil
+		}
+	}
 	ctx := val.Context()
 	key := val.Key()
 	msg := val.Value()
@@ -47,17 +58,18 @@ func (mc *OnlineHistoryMongoConsumerHandler) HandleChatWs2Mongo(val mq.Message) 
 	err := proto.Unmarshal(msg, &msgFromMQ)
 	if err != nil {
 		log.ZError(ctx, "unmarshall failed", err, "key", key, "len", len(msg))
-		return
+		return nil
 	}
 	if len(msgFromMQ.MsgData) == 0 {
 		log.ZError(ctx, "msgFromMQ.MsgData is empty", nil, "key", key, "msg", msg)
-		return
+		return nil
 	}
 	log.ZDebug(ctx, "mongo consumer recv msg", "msgs", msgFromMQ.String())
 	err = mc.msgTransferDatabase.BatchInsertChat2DB(ctx, msgFromMQ.ConversationID, msgFromMQ.MsgData, msgFromMQ.LastSeq)
 	if err != nil {
 		log.ZError(ctx, "batch data insert to mongo err", err, "msg", msgFromMQ.MsgData, "conversationID", msgFromMQ.ConversationID)
 		prommetrics.MsgInsertMongoFailedCounter.Inc()
+		return err
 	} else {
 		prommetrics.MsgInsertMongoSuccessCounter.Inc()
 		val.Mark()
@@ -75,4 +87,5 @@ func (mc *OnlineHistoryMongoConsumerHandler) HandleChatWs2Mongo(val mq.Message) 
 	//	log.ZError(ctx, "remove cache msg from redis err", err, "msg",
 	//		msgFromMQ.MsgData, "conversationID", msgFromMQ.ConversationID)
 	//}
+	return nil
 }

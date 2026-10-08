@@ -16,6 +16,7 @@ package controller
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 	"time"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
@@ -161,6 +162,13 @@ func (c *conversationDatabase) UpdateUserConversations(ctx context.Context, user
 }
 
 func (c *conversationDatabase) UpdateUsersConversationField(ctx context.Context, userIDs []string, conversationID string, args map[string]any) error {
+	if stablepolicy.Protected(conversationID) {
+		for _, key := range []string{"min_seq", "max_seq", "is_msg_destruct", "msg_destruct_time"} {
+			if _, ok := args[key]; ok {
+				return stablepolicy.ErrLegacy
+			}
+		}
+	}
 	_, err := c.conversationDB.UpdateByMap(ctx, userIDs, conversationID, args)
 	if err != nil {
 		return err
@@ -243,6 +251,11 @@ func (c *conversationDatabase) SyncPeerUserPrivateConversationTx(ctx context.Con
 }
 
 func (c *conversationDatabase) FindConversations(ctx context.Context, ownerUserID string, conversationIDs []string) ([]*relationtb.Conversation, error) {
+	for _, id := range conversationIDs {
+		if stablepolicy.Protected(id) {
+			return c.conversationDB.Find(ctx, ownerUserID, conversationIDs)
+		}
+	}
 	return c.cache.GetConversations(ctx, ownerUserID, conversationIDs)
 }
 
@@ -427,6 +440,11 @@ func (c *conversationDatabase) FindRandConversation(ctx context.Context, ts int6
 }
 
 func (c *conversationDatabase) DeleteUsersConversations(ctx context.Context, userID string, conversationIDs []string) (err error) {
+	for _, id := range conversationIDs {
+		if err = stablepolicy.CheckWrite(id); err != nil {
+			return err
+		}
+	}
 	return c.tx.Transaction(ctx, func(ctx context.Context) error {
 		err = c.conversationDB.DeleteUsersConversations(ctx, userID, conversationIDs)
 		if err != nil {

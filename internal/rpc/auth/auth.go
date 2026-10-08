@@ -251,8 +251,8 @@ func (s *authServer) forceKickOff(ctx context.Context, userID string, platformID
 	}
 	for k := range m {
 		m[k] = constant.KickedToken
-		log.ZDebug(ctx, "set token map is ", "token map", m, "userID",
-			userID, "token", k)
+		log.ZDebug(ctx, "set token map is ", "tokenCount", len(m), "userID",
+			userID, "tokenPresent", k != "")
 
 		err = s.authDatabase.SetTokenMapByUidPid(ctx, userID, int(platformID), m)
 		if err != nil {
@@ -271,15 +271,15 @@ func (s *authServer) InvalidateToken(ctx context.Context, req *pbauth.Invalidate
 		return nil, errs.New("token map is empty").Wrap()
 	}
 	log.ZDebug(ctx, "get token from redis", "userID", req.UserID, "platformID",
-		req.PlatformID, "tokenMap", m)
+		req.PlatformID, "tokenCount", len(m))
 
 	for k := range m {
 		if k != req.GetPreservedToken() {
 			m[k] = constant.KickedToken
 		}
 	}
-	log.ZDebug(ctx, "set token map is ", "token map", m, "userID",
-		req.UserID, "token", req.GetPreservedToken())
+	log.ZDebug(ctx, "set token map is ", "tokenCount", len(m), "userID",
+		req.UserID, "tokenPresent", req.GetPreservedToken() != "")
 	err = s.authDatabase.SetTokenMapByUidPid(ctx, req.UserID, int(req.PlatformID), m)
 	if err != nil {
 		return nil, err

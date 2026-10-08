@@ -30,17 +30,18 @@ import (
 	"github.com/openimsdk/tools/utils/datautil"
 	"github.com/openimsdk/tools/utils/jsonutil"
 	"github.com/openimsdk/tools/utils/network"
+	"github.com/openimsdk/tools/utils/runtimeenv"
 	"google.golang.org/grpc/status"
 
 	kdisc "github.com/openimsdk/open-im-server/v3/pkg/common/discovery"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
+	"github.com/openimsdk/open-im-server/v3/pkg/rpcsecure"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/errs"
 	"github.com/openimsdk/tools/log"
 	grpccli "github.com/openimsdk/tools/mw/grpc/client"
 	grpcsrv "github.com/openimsdk/tools/mw/grpc/server"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func init() {
@@ -59,13 +60,34 @@ func Start[T any](ctx context.Context, disc *conf.Discovery, circuitBreakerConfi
 
 	maxRequestBody := getConfigRpcMaxRequestBody(reflect.ValueOf(config))
 	shareConfig := getConfigShare(reflect.ValueOf(config))
+	var tlsConfig conf.RPCTLS
+	var stableRequired bool
+	if shareConfig != nil {
+		tlsConfig = shareConfig.RPCTLS
+		stableRequired = shareConfig.StableMessage.Enabled
+		conf.SetStableMode(stableRequired)
+	}
+	if err := rpcsecure.ValidateDiscovery(stableRequired, disc.Enable, runtimeenv.RuntimeEnvironment()); err != nil {
+		return err
+	}
+	clientTransport, err := rpcsecure.ClientCredentials(tlsConfig, stableRequired)
+	if err != nil {
+		return err
+	}
+	serverTransport, err := rpcsecure.ServerCredentials(tlsConfig, stableRequired)
+	if err != nil {
+		return err
+	}
+	if serverTransport != nil {
+		options = append(options, grpc.Creds(serverTransport))
+	}
 
 	log.ZDebug(ctx, "rpc start", "rpcMaxRequestBody", maxRequestBody, "rpcRegisterName", rpcRegisterName, "registerIP", registerIP, "listenIP", listenIP)
 
 	options = append(options,
 		grpcsrv.GrpcServerMetadataContext(),
 		grpcsrv.GrpcServerErrorConvert(),
-		grpcsrv.GrpcServerLogger(),
+		rpcsecure.ServerLogger(),
 		grpcsrv.GrpcServerRequestValidate(),
 		grpcsrv.GrpcServerPanicCapture(),
 	)
@@ -123,7 +145,7 @@ func Start[T any](ctx context.Context, disc *conf.Discovery, circuitBreakerConfi
 			"cpuThreshold", rateLimiterConfig.CPUThreshold)
 	}
 
-	registerIP, err := network.GetRpcRegisterIP(registerIP)
+	registerIP, err = network.GetRpcRegisterIP(registerIP)
 	if err != nil {
 		return err
 	}
@@ -147,11 +169,11 @@ func Start[T any](ctx context.Context, disc *conf.Discovery, circuitBreakerConfi
 
 	defer client.Close()
 	client.AddOption(
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(clientTransport),
 		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"LoadBalancingPolicy": "%s"}`, "round_robin")),
 
-		grpccli.GrpcClientLogger(),
-		grpccli.GrpcClientContext(),
+		rpcsecure.ClientLogger(),
+		rpcsecure.ClientContext(),
 		grpccli.GrpcClientErrorConvert(),
 	)
 	if len(clientOptions) > 0 {
@@ -205,57 +227,31 @@ func Start[T any](ctx context.Context, disc *conf.Discovery, circuitBreakerConfi
 
 	var (
 		rpcServer       *grpc.Server
+		rpcListener     net.Listener
 		rpcGracefulStop chan struct{}
 	)
 
 	onGrpcServiceRegistrar := func(desc *grpc.ServiceDesc, impl any) {
-		if rpcServer != nil {
-			rpcServer.RegisterService(desc, impl)
-			return
-		}
-		var rpcListenAddr string
-		if autoSetPorts {
-			rpcListenAddr = net.JoinHostPort(listenIP, "0")
-		} else {
-			rpcPort, err := datautil.GetElemByIndex(rpcPorts, index)
-			if err != nil {
-				cancel(fmt.Errorf("rpcPorts index out of range %s %w", rpcRegisterName, err))
+		if rpcServer == nil {
+			var port int
+			if !autoSetPorts {
+				var portErr error
+				port, portErr = datautil.GetElemByIndex(rpcPorts, index)
+				if portErr != nil {
+					cancel(portErr)
+					return
+				}
+			}
+			var listenErr error
+			rpcListener, listenErr = net.Listen("tcp", net.JoinHostPort(listenIP, strconv.Itoa(port)))
+			if listenErr != nil {
+				cancel(listenErr)
 				return
 			}
-			rpcListenAddr = net.JoinHostPort(listenIP, strconv.Itoa(rpcPort))
+			rpcServer = grpc.NewServer(options...)
 		}
-		rpcListener, err := net.Listen("tcp", rpcListenAddr)
-		if err != nil {
-			cancel(fmt.Errorf("listen rpc %s %s %w", rpcRegisterName, rpcListenAddr, err))
-			return
-		}
-
-		rpcServer = grpc.NewServer(options...)
 		rpcServer.RegisterService(desc, impl)
-		rpcGracefulStop = make(chan struct{})
-		rpcPort := rpcListener.Addr().(*net.TCPAddr).Port
-		log.ZDebug(ctx, "rpc start register", "rpcRegisterName", rpcRegisterName, "registerIP", registerIP, "rpcPort", rpcPort)
-		grpcOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
-		rpcGracefulStop = make(chan struct{})
-		go func() {
-			<-ctx.Done()
-			rpcServer.GracefulStop()
-			close(rpcGracefulStop)
-		}()
-		if err := client.Register(ctx, rpcRegisterName, registerIP, rpcListener.Addr().(*net.TCPAddr).Port, grpcOpt); err != nil {
-			cancel(fmt.Errorf("rpc register %s %w", rpcRegisterName, err))
-			return
-		}
-
-		go func() {
-			err := rpcServer.Serve(rpcListener)
-			if err == nil {
-				err = fmt.Errorf("serve end")
-			}
-			cancel(fmt.Errorf("rpc %s %w", rpcRegisterName, err))
-		}()
 	}
-
 	err = rpcFn(ctx, config, client, &grpcServiceRegistrar{onRegisterService: onGrpcServiceRegistrar})
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/pkg/logsafe"
 
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush"
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush/options"
@@ -28,21 +29,21 @@ func NewOfflinePushConsumerHandler(offlinePusher offlinepush.OfflinePusher) *Off
 func (o *OfflinePushConsumerHandler) HandleMsg2OfflinePush(ctx context.Context, msg []byte) {
 	offlinePushMsg := pbpush.PushMsgReq{}
 	if err := proto.Unmarshal(msg, &offlinePushMsg); err != nil {
-		log.ZError(ctx, "offline push Unmarshal msg err", err, "msg", string(msg))
+		log.ZError(ctx, "offline push Unmarshal msg err", err, "messageBytes", len(msg))
 		return
 	}
 	if offlinePushMsg.MsgData == nil || offlinePushMsg.UserIDs == nil {
-		log.ZError(ctx, "offline push msg is empty", errs.New("offlinePushMsg is empty"), "userIDs", offlinePushMsg.UserIDs, "msg", offlinePushMsg.MsgData)
+		log.ZError(ctx, "offline push msg is empty", errs.New("offlinePushMsg is empty"), "userIDs", offlinePushMsg.UserIDs, "msg", logsafe.Message(offlinePushMsg.MsgData))
 		return
 	}
 	if offlinePushMsg.MsgData.Status == constant.MsgStatusSending {
 		offlinePushMsg.MsgData.Status = constant.MsgStatusSendSuccess
 	}
-	log.ZInfo(ctx, "receive to OfflinePush MQ", "userIDs", offlinePushMsg.UserIDs, "msg", offlinePushMsg.MsgData)
+	log.ZInfo(ctx, "receive to OfflinePush MQ", "userIDs", offlinePushMsg.UserIDs, "msg", logsafe.Message(offlinePushMsg.MsgData))
 
 	err := o.offlinePushMsg(ctx, offlinePushMsg.MsgData, offlinePushMsg.UserIDs)
 	if err != nil {
-		log.ZWarn(ctx, "offline push failed", err, "msg", offlinePushMsg.String())
+		log.ZWarn(ctx, "offline push failed", err, "msg", logsafe.Message(offlinePushMsg.MsgData))
 	}
 }
 

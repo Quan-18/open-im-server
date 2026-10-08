@@ -108,7 +108,7 @@ func (a *authDatabase) CreateToken(ctx context.Context, userID string, platformI
 				if err != nil {
 					return "", err
 				}
-				log.ZDebug(ctx, "kicked token in create token", "token", k)
+				log.ZDebug(ctx, "kicked token in create token", "tokenPresent", k != "")
 			}
 		}
 	}

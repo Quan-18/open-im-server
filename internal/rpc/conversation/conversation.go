@@ -16,6 +16,8 @@ package conversation
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
+	"github.com/openimsdk/open-im-server/v3/pkg/util/conversationutil"
 	"sort"
 	"time"
 
@@ -75,6 +77,10 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	if err := stablepolicy.VerifyMode(ctx, mgocli.GetDB(), config.Share.StableMessage); err != nil {
+		return err
+	}
+	stablepolicy.Configure(config.Share.StableMessage.Enabled)
 	rdb, err := dbb.Redis(ctx)
 	if err != nil {
 		return err
@@ -381,6 +387,42 @@ func (c *conversationServer) UpdateConversationsByUser(ctx context.Context, req 
 
 // create conversation without notification for msg redis transfer.
 func (c *conversationServer) CreateSingleChatConversations(ctx context.Context, req *pbconversation.CreateSingleChatConversationsReq) (*pbconversation.CreateSingleChatConversationsResp, error) {
+	if stablepolicy.Protected(req.ConversationID) {
+		if err := authverify.CheckAdmin(ctx); err != nil {
+			return nil, err
+		}
+		if req.ConversationType != constant.SingleChatType || req.SendID == req.RecvID || req.ConversationID != conversationutil.GenConversationIDForSingle(req.SendID, req.RecvID) {
+			return nil, stablepolicy.ErrIntegrity
+		}
+		for _, owner := range []string{req.SendID, req.RecvID} {
+			peer := req.SendID
+			if owner == req.SendID {
+				peer = req.RecvID
+			}
+			rows, err := c.conversationDatabase.FindConversations(ctx, owner, []string{req.ConversationID})
+			if err != nil {
+				return nil, err
+			}
+			if len(rows) == 0 {
+				entry := &dbModel.Conversation{OwnerUserID: owner, UserID: peer, ConversationID: req.ConversationID, ConversationType: constant.SingleChatType, CreateTime: time.Now()}
+				createErr := c.conversationDatabase.CreateConversation(ctx, []*dbModel.Conversation{entry})
+				rows, err = c.conversationDatabase.FindConversations(ctx, owner, []string{req.ConversationID})
+				if err != nil {
+					return nil, err
+				}
+				if len(rows) == 0 {
+					if createErr != nil {
+						return nil, createErr
+					}
+					return nil, stablepolicy.ErrIntegrity
+				}
+			}
+			if len(rows) != 1 || rows[0].OwnerUserID != owner || rows[0].UserID != peer || rows[0].ConversationType != constant.SingleChatType {
+				return nil, stablepolicy.ErrIntegrity
+			}
+		}
+		return &pbconversation.CreateSingleChatConversationsResp{}, nil
+	}
 	var conversation dbModel.Conversation
 	conversation.CreateTime = time.Now()
 
@@ -762,6 +804,9 @@ func (c *conversationServer) ClearUserConversationMsg(ctx context.Context, req *
 }
 
 func (c *conversationServer) setConversationMinSeqAndLatestMsgDestructTime(ctx context.Context, conversationID string, ownerUserID string, minSeq int64, latestMsgDestructTime time.Time) error {
+	if err := stablepolicy.CheckWrite(conversationID); err != nil {
+		return err
+	}
 	update := map[string]any{
 		"latest_msg_destruct_time": latestMsgDestructTime,
 	}

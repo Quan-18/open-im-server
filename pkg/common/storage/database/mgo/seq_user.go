@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 	"github.com/openimsdk/tools/db/mongoutil"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -81,6 +82,9 @@ func (s *seqUserMongo) GetUserMinSeq(ctx context.Context, conversationID string,
 }
 
 func (s *seqUserMongo) SetUserMinSeq(ctx context.Context, conversationID string, userID string, seq int64) error {
+	if err := stablepolicy.CheckWrite(conversationID); err != nil {
+		return err
+	}
 	return s.setSeq(ctx, conversationID, userID, seq, "min_seq")
 }
 

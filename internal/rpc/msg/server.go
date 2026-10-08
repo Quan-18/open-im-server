@@ -16,6 +16,10 @@ package msg
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/internal/stablemessage"
+	stablepb "github.com/openimsdk/open-im-server/v3/pkg/stablemessage/v1"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
+	"github.com/openimsdk/protocol/auth"
 
 	"google.golang.org/grpc"
 
@@ -56,6 +60,7 @@ type Config struct {
 
 // MsgServer encapsulates dependencies required for message handling.
 type msgServer struct {
+	stableStore *stablemessage.Store
 	msg.UnimplementedMsgServer
 	RegisterCenter         discovery.Conn                   // Service discovery registry for service registration.
 	MsgDatabase            controller.CommonMsgDatabase     // Interface for message database operations.
@@ -88,6 +93,11 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	if err != nil {
 		return err
 	}
+	stableStore, err := stablemessage.Open(ctx, mgocli.GetDB(), rdb, config.Share.StableMessage)
+	if err != nil {
+		return err
+	}
+	stablepolicy.Configure(config.Share.StableMessage.Enabled)
 	builder, err := mqbuild.NewBuilder(config.Share.Queue, &config.KafkaConfig, rdb)
 	if err != nil {
 		return err
@@ -130,6 +140,7 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	conversationClient := rpcli.NewConversationClient(conversationConn)
 	msgDatabase := controller.NewCommonMsgDatabase(msgDocModel, msgModel, seqUserCache, seqConversationCache, redisProducer)
 	s := &msgServer{
+		stableStore:            stableStore,
 		MsgDatabase:            msgDatabase,
 		RegisterCenter:         client,
 		UserLocalCache:         rpccache.NewUserLocalCache(rpcli.NewUserClient(userConn), &config.LocalCacheConfig, rdb),
@@ -146,6 +157,19 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 	s.msgNotificationSender = NewMsgNotificationSender(config, notification.WithLocalSendMsg(s.SendMsg))
 
 	msg.RegisterMsgServer(server, s)
+	authConn, err := client.GetConn(ctx, config.Discovery.RpcService.Auth)
+	if err != nil {
+		return err
+	}
+	stablepb.RegisterStableMessageServer(server, &stablemessage.Service{Store: stableStore, Auth: auth.NewAuthClient(authConn), Config: config.Share.StableMessage})
+	if stableStore != nil {
+		pushProducer, e := builder.GetTopicProducer(ctx, mqbuild.TopicToPush)
+		if e != nil {
+			return e
+		}
+		projector := stablemessage.NewProjector(stableStore, rdb, conversationClient, pushProducer, msgModel)
+		go projector.Run(ctx)
+	}
 
 	return nil
 }

@@ -16,6 +16,20 @@ imAdminUser:
 # - memory (standalone only; microservices cannot use memory)
 queue: kafka
 
+# 稳定单聊仅用于新的专用实例；启用后由 Mongo 模式标记阻止回退。
+stableMessage:
+  enabled: false
+  sourceNamespace: dw-v2
+  adminUserIDs: []
+
+# 稳定模式的网络 RPC 必须开启 TLS；单进程内部调用无需网络证书。
+rpcTLS:
+  enabled: false
+  caFile:
+  certFile:
+  keyFile:
+  serverName:
+
 
 # 1: For Android, iOS, Windows, Mac, and web platforms, only one instance can be online at a time
 multiLogin:

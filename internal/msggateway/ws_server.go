@@ -361,7 +361,7 @@ func (ws *WsServer) multiTerminalLoginChecker(clientOK bool, oldClients []*Clien
 				log.ZDebug(newClient.ctx, "token is same, not kick",
 					"userID", newClient.UserID,
 					"platformID", newClient.PlatformID,
-					"token", newClient.token)
+					"tokenPresent", newClient.token != "")
 				continue
 			}
 
@@ -533,7 +533,7 @@ func (ws *WsServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.ZDebug(connContext, "new conn", "token", connContext.GetToken())
+	log.ZDebug(connContext, "new conn", "userID", connContext.GetUserID())
 
 	var pingInterval time.Duration
 	if connContext.GetPlatformID() == constant.WebPlatformID {

@@ -39,6 +39,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/cache/redis"
 	"github.com/openimsdk/open-im-server/v3/pkg/dbbuild"
+	"github.com/openimsdk/open-im-server/v3/pkg/rpcsecure"
 	"github.com/openimsdk/open-im-server/v3/version"
 	"github.com/openimsdk/tools/discovery"
 	"github.com/openimsdk/tools/discovery/inprocess"
@@ -90,7 +91,7 @@ func main() {
 }
 
 func newCmds(confPath string, index int) *cmds {
-	return &cmds{confPath: confPath, index: index}
+	return &cmds{confPath: confPath, index: index, local: rpcsecure.NewLocalRegistry(inprocess.GetSvcDiscoveryRegistry(), inprocess.GetServiceRegistrar())}
 }
 
 type cmdName struct {
@@ -99,6 +100,7 @@ type cmdName struct {
 	Block bool
 }
 type cmds struct {
+	local    *rpcsecure.LocalRegistry
 	confPath string
 	index    int
 	cmds     []cmdName
@@ -160,6 +162,7 @@ func (x *cmds) initAllConfig() error {
 		}
 	}
 	x.initDiscovery()
+	config.SetStableMode(x.config.Share.StableMessage.Enabled)
 	x.config.Redis.Disable = false
 	x.config.LocalCache = config.LocalCache{}
 	config.InitNotification(&x.config.Notification)
@@ -375,7 +378,7 @@ func putCmd[C any](cmd *cmds, block bool, fn func(ctx context.Context, config *C
 		if err := cmd.parseConf(&conf); err != nil {
 			return err
 		}
-		return fn(ctx, &conf, inprocess.GetSvcDiscoveryRegistry(), inprocess.GetServiceRegistrar())
+		return fn(ctx, &conf, cmd.local, cmd.local)
 	})
 }
 

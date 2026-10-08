@@ -17,6 +17,7 @@ import (
 	"github.com/openimsdk/open-im-server/v3/pkg/common/prommetrics"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/servererrs"
 	"github.com/openimsdk/open-im-server/v3/pkg/rpcli"
+	"github.com/openimsdk/open-im-server/v3/pkg/rpcsecure"
 	pbAuth "github.com/openimsdk/protocol/auth"
 	"github.com/openimsdk/protocol/constant"
 	"github.com/openimsdk/protocol/conversation"
@@ -33,7 +34,6 @@ import (
 	"github.com/openimsdk/tools/log"
 	"github.com/openimsdk/tools/mcontext"
 	"github.com/openimsdk/tools/mw"
-	"github.com/openimsdk/tools/mw/api"
 )
 
 const (
@@ -118,7 +118,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, cf
 			c.Set(authverify.CtxAdminUserIDsKey, cfg.Share.IMAdminUser.UserIDs)
 		})
 	}
-	r.Use(api.GinLogger(), prommetricsGin(), gin.RecoveryWithWriter(gin.DefaultErrorWriter, mw.GinPanicErr), mw.CorsHandler(),
+	r.Use(safeHTTPLogger(), prommetricsGin(), safeRecovery(), mw.CorsHandler(),
 		mw.GinParseOperationID(), GinParseToken(rpcli.NewAuthClient(authConn)), setGinIsAdmin(cfg.Share.IMAdminUser.UserIDs))
 
 	u := NewUserApi(user.NewUserClient(userConn), client, cfg.Discovery.RpcService)
@@ -254,6 +254,7 @@ func newGinRouter(ctx context.Context, client discovery.SvcDiscoveryRegistry, cf
 	}
 	// Message
 	m := NewMessageApi(msg.NewMsgClient(msgConn), rpcli.NewUserClient(userConn), cfg.Share.IMAdminUser.UserIDs)
+	registerStableRoutes(r, msgConn)
 	{
 		msgGroup := r.Group("/msg")
 		msgGroup.POST("/newest_seq", m.GetSeq)
@@ -372,6 +373,10 @@ func (x *internalApi) RpcInvoke(c *gin.Context) {
 	}
 	if req.Secret != x.secret {
 		apiresp.GinError(c, servererrs.ErrNoPermission.WrapMsg("secret not match"))
+		return
+	}
+	if rpcsecure.StableMethod(req.Method) {
+		apiresp.GinError(c, servererrs.ErrNoPermission)
 		return
 	}
 	ctx := context.Context(c)

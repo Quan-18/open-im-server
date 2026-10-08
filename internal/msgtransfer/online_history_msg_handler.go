@@ -65,6 +65,7 @@ type userHasReadSeq struct {
 }
 
 type OnlineHistoryRedisConsumerHandler struct {
+	legacyGuard         func(context.Context, mq.Message) (bool, error)
 	redisMessageBatches *batcher.Batcher[ConsumerMessage]
 
 	msgTransferDatabase         controller.MsgTransferDatabase
@@ -397,6 +398,15 @@ func withAggregationCtx(ctx context.Context, values []*ContextMsg) context.Conte
 }
 
 func (och *OnlineHistoryRedisConsumerHandler) HandlerRedisMessage(msg mq.Message) error { // a instance in the consumer group
+	if och.legacyGuard != nil {
+		blocked, err := och.legacyGuard(msg.Context(), msg)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return nil
+		}
+	}
 	err := och.redisMessageBatches.Put(msg.Context(), &ConsumerMessage{Ctx: msg.Context(), Key: msg.Key(), Value: msg.Value(), Raw: msg})
 	if err != nil {
 		log.ZWarn(msg.Context(), "put msg to  error", err, "key", msg.Key(), "value", msg.Value())

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/database"
 	"github.com/openimsdk/open-im-server/v3/pkg/common/storage/model"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 	"github.com/openimsdk/tools/db/mongoutil"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -29,6 +30,9 @@ type seqConversationMongo struct {
 }
 
 func (s *seqConversationMongo) setSeq(ctx context.Context, conversationID string, seq int64, field string) error {
+	if err := stablepolicy.CheckWrite(conversationID); err != nil {
+		return err
+	}
 	filter := map[string]any{
 		"conversation_id": conversationID,
 	}
@@ -49,6 +53,12 @@ func (s *seqConversationMongo) setSeq(ctx context.Context, conversationID string
 }
 
 func (s *seqConversationMongo) Malloc(ctx context.Context, conversationID string, size int64) (int64, error) {
+	if stablepolicy.Protected(conversationID) {
+		if size > 0 {
+			return 0, stablepolicy.ErrLegacy
+		}
+		return s.GetMaxSeq(ctx, conversationID)
+	}
 	if size < 0 {
 		return 0, errors.New("size must be greater than 0")
 	}
@@ -73,6 +83,10 @@ func (s *seqConversationMongo) SetMaxSeq(ctx context.Context, conversationID str
 }
 
 func (s *seqConversationMongo) GetMaxSeq(ctx context.Context, conversationID string) (int64, error) {
+	if stablepolicy.Protected(conversationID) {
+		water, err := s.GetStableSeq(ctx, conversationID)
+		return water.Seq, err
+	}
 	seq, err := mongoutil.FindOne[int64](ctx, s.coll, bson.M{"conversation_id": conversationID}, options.FindOne().SetProjection(map[string]any{"_id": 0, "max_seq": 1}))
 	if err == nil {
 		return seq, nil

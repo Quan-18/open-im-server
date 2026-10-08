@@ -3,6 +3,7 @@ package push
 import (
 	"context"
 	"encoding/json"
+	"github.com/openimsdk/open-im-server/v3/pkg/logsafe"
 	"time"
 
 	"github.com/openimsdk/open-im-server/v3/internal/push/offlinepush"
@@ -88,7 +89,7 @@ func NewConsumerHandler(ctx context.Context, config *Config, database controller
 func (c *ConsumerHandler) HandleMs2PsChat(ctx context.Context, msg []byte) {
 	msgFromMQ := pbpush.PushMsgReq{}
 	if err := proto.Unmarshal(msg, &msgFromMQ); err != nil {
-		log.ZError(ctx, "push Unmarshal msg err", err, "msg", string(msg))
+		log.ZError(ctx, "push Unmarshal msg err", err, "messageBytes", len(msg))
 		return
 	}
 
@@ -97,7 +98,7 @@ func (c *ConsumerHandler) HandleMs2PsChat(ctx context.Context, msg []byte) {
 
 	if nowSec-sec > 10 {
 		prommetrics.MsgLoneTimePushCounter.Inc()
-		log.ZWarn(ctx, "it’s been a while since the message was sent", nil, "msg", msgFromMQ.String(), "sec", sec, "nowSec", nowSec, "nowSec-sec", nowSec-sec)
+		log.ZWarn(ctx, "it’s been a while since the message was sent", nil, "msg", logsafe.Message(msgFromMQ.MsgData), "sec", sec, "nowSec", nowSec, "nowSec-sec", nowSec-sec)
 	}
 	var err error
 
@@ -115,7 +116,7 @@ func (c *ConsumerHandler) HandleMs2PsChat(ctx context.Context, msg []byte) {
 		err = c.Push2User(ctx, pushUserIDList, msgFromMQ.MsgData)
 	}
 	if err != nil {
-		log.ZWarn(ctx, "push failed", err, "msg", msgFromMQ.String())
+		log.ZWarn(ctx, "push failed", err, "msg", logsafe.Message(msgFromMQ.MsgData))
 	}
 }
 
@@ -125,10 +126,10 @@ func (c *ConsumerHandler) WaitCache() {
 
 // Push2User Suitable for two types of conversations, one is SingleChatType and the other is NotificationChatType.
 func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *sdkws.MsgData) (err error) {
-	log.ZInfo(ctx, "Get msg from msg_transfer And push msg", "userIDs", userIDs, "msg", msg.String())
+	log.ZInfo(ctx, "Get msg from msg_transfer And push msg", "userIDs", userIDs, "msg", logsafe.Message(msg))
 	defer func(duration time.Time) {
 		t := time.Since(duration)
-		log.ZInfo(ctx, "Get msg from msg_transfer And push msg end", "msg", msg.String(), "time cost", t)
+		log.ZInfo(ctx, "Get msg from msg_transfer And push msg end", "msg", logsafe.Message(msg), "time cost", t)
 	}(time.Now())
 	if err := c.webhookBeforeOnlinePush(ctx, &c.config.WebhooksConfig.BeforeOnlinePush, userIDs, msg); err != nil {
 		return err
@@ -139,7 +140,7 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 		return err
 	}
 
-	log.ZDebug(ctx, "single and notification push result", "result", wsResults, "msg", msg, "push_to_userID", userIDs)
+	log.ZDebug(ctx, "single and notification push result", "result", wsResults, "msg", logsafe.Message(msg), "push_to_userID", userIDs)
 	log.ZInfo(ctx, "single and notification push end")
 
 	if !c.shouldPushOffline(ctx, msg) {
@@ -170,8 +171,8 @@ func (c *ConsumerHandler) Push2User(ctx context.Context, userIDs []string, msg *
 	}
 	err = c.offlinePushMsg(ctx, msg, needOfflinePushUserID)
 	if err != nil {
-		log.ZDebug(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID", needOfflinePushUserID, "msg", msg)
-		log.ZWarn(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", msg)
+		log.ZDebug(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID", needOfflinePushUserID, "msg", logsafe.Message(msg))
+		log.ZWarn(ctx, "offlinePushMsg failed", err, "needOfflinePushUserID length", len(needOfflinePushUserID), "msg", logsafe.Message(msg))
 		return nil
 	}
 
@@ -219,10 +220,10 @@ func (c *ConsumerHandler) GetConnsAndOnlinePush(ctx context.Context, msg *sdkws.
 }
 
 func (c *ConsumerHandler) Push2Group(ctx context.Context, groupID string, msg *sdkws.MsgData) (err error) {
-	log.ZInfo(ctx, "Get group msg from msg_transfer and push msg", "msg", msg.String(), "groupID", groupID)
+	log.ZInfo(ctx, "Get group msg from msg_transfer and push msg", "msg", logsafe.Message(msg), "groupID", groupID)
 	defer func(duration time.Time) {
 		t := time.Since(duration)
-		log.ZInfo(ctx, "Get group msg from msg_transfer and push msg end", "msg", msg.String(), "groupID", groupID, "time cost", t)
+		log.ZInfo(ctx, "Get group msg from msg_transfer and push msg end", "msg", logsafe.Message(msg), "groupID", groupID, "time cost", t)
 	}(time.Now())
 	var pushToUserIDs []string
 	if err = c.webhookBeforeGroupOnlinePush(ctx, &c.config.WebhooksConfig.BeforeGroupOnlinePush, groupID, msg,
@@ -240,7 +241,7 @@ func (c *ConsumerHandler) Push2Group(ctx context.Context, groupID string, msg *s
 		return err
 	}
 
-	log.ZDebug(ctx, "group push result", "result", wsResults, "msg", msg)
+	log.ZDebug(ctx, "group push result", "result", wsResults, "msg", logsafe.Message(msg))
 	log.ZInfo(ctx, "online group push end")
 
 	if !c.shouldPushOffline(ctx, msg) {
@@ -266,7 +267,7 @@ func (c *ConsumerHandler) asyncOfflinePush(ctx context.Context, needOfflinePushU
 	var offlinePushUserIDs []string
 	err := c.webhookBeforeOfflinePush(ctx, &c.config.WebhooksConfig.BeforeOfflinePush, needOfflinePushUserIDs, msg, &offlinePushUserIDs)
 	if err != nil {
-		log.ZWarn(ctx, "webhookBeforeOfflinePush failed", err, "msg", msg)
+		log.ZWarn(ctx, "webhookBeforeOfflinePush failed", err, "msg", logsafe.Message(msg))
 		return
 	}
 
@@ -275,9 +276,9 @@ func (c *ConsumerHandler) asyncOfflinePush(ctx context.Context, needOfflinePushU
 	}
 	if err := c.pushDatabase.MsgToOfflinePushMQ(ctx, conversationutil.GenConversationUniqueKeyForSingle(msg.SendID, msg.RecvID), needOfflinePushUserIDs, msg); err != nil {
 		log.ZDebug(ctx, "Msg To OfflinePush MQ error", err, "needOfflinePushUserIDs",
-			needOfflinePushUserIDs, "msg", msg)
+			needOfflinePushUserIDs, "msg", logsafe.Message(msg))
 		log.ZWarn(ctx, "Msg To OfflinePush MQ error", err, "needOfflinePushUserIDs length",
-			len(needOfflinePushUserIDs), "msg", msg)
+			len(needOfflinePushUserIDs), "msg", logsafe.Message(msg))
 		prommetrics.GroupChatMsgProcessFailedCounter.Inc()
 		return
 	}
@@ -334,7 +335,7 @@ func (c *ConsumerHandler) groupMessagesHandler(ctx context.Context, groupID stri
 func (c *ConsumerHandler) offlinePushMsg(ctx context.Context, msg *sdkws.MsgData, offlinePushUserIDs []string) error {
 	title, content, opts, err := c.getOfflinePushInfos(msg)
 	if err != nil {
-		log.ZError(ctx, "getOfflinePushInfos failed", err, "msg", msg)
+		log.ZError(ctx, "getOfflinePushInfos failed", err, "msg", logsafe.Message(msg))
 		return err
 	}
 	err = c.offlinePusher.Push(ctx, offlinePushUserIDs, title, content, opts)

@@ -71,7 +71,12 @@ func Start(ctx context.Context, config *Config, client discovery.SvcDiscoveryReg
 			}
 		}()
 		log.CInfo(ctx, "api server is init", "runtimeEnv", runtimeenv.RuntimeEnvironment(), "address", httpServer.Addr, "apiPort", apiPort)
-		err := httpServer.ListenAndServe()
+		var err error
+		if config.Share.RPCTLS.Enabled {
+			err = httpServer.ListenAndServeTLS(config.Share.RPCTLS.CertFile, config.Share.RPCTLS.KeyFile)
+		} else {
+			err = httpServer.ListenAndServe()
+		}
 		if err == nil {
 			err = errors.New("api done")
 		}

@@ -56,7 +56,7 @@ func (a *AuthLocalCache) getExistingToken(ctx context.Context, userID string, pl
 		if err != nil {
 			log.ZError(ctx, "AuthLocalCache GetExistingToken error", err, "cost", time.Since(start), "userID", userID, "platformID", platformID)
 		} else {
-			log.ZDebug(ctx, "AuthLocalCache GetExistingToken resp", "cost", time.Since(start), "userID", userID, "platformID", platformID, "val", val)
+			log.ZDebug(ctx, "AuthLocalCache GetExistingToken resp", "cost", time.Since(start), "userID", userID, "platformID", platformID, "tokenCount", len(val.TokenStates))
 		}
 	}()
 

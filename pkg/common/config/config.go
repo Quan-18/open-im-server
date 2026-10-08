@@ -426,9 +426,11 @@ type AfterConfig struct {
 }
 
 type Share struct {
-	Secret      string         `yaml:"secret"`
-	Queue       EngineSelector `yaml:"queue"`
-	IMAdminUser struct {
+	StableMessage StableMessage  `yaml:"stableMessage"`
+	RPCTLS        RPCTLS         `yaml:"rpcTLS"`
+	Secret        string         `yaml:"secret"`
+	Queue         EngineSelector `yaml:"queue"`
+	IMAdminUser   struct {
 		UserIDs   []string `yaml:"userIDs"`
 		Nicknames []string `yaml:"nicknames"`
 	} `yaml:"imAdminUser"`

@@ -16,6 +16,8 @@ package msg
 
 import (
 	"context"
+	"github.com/openimsdk/open-im-server/v3/pkg/common/convert"
+	"github.com/openimsdk/open-im-server/v3/pkg/stablepolicy"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 	"github.com/openimsdk/open-im-server/v3/pkg/msgprocessor"
@@ -36,6 +38,18 @@ func (m *msgServer) PullMessageBySeqs(ctx context.Context, req *sdkws.PullMessag
 	resp.Msgs = make(map[string]*sdkws.PullMsgs)
 	resp.NotificationMsgs = make(map[string]*sdkws.PullMsgs)
 	for _, seq := range req.SeqRanges {
+		if m.stableStore != nil && stablepolicy.Protected(seq.ConversationID) {
+			rows, isEnd, err := m.stableStore.ReadRange(ctx, seq.ConversationID, req.UserID, seq.Begin, seq.End, seq.Num, req.Order == sdkws.PullOrder_PullOrderAsc)
+			if err != nil {
+				return nil, err
+			}
+			messages := make([]*sdkws.MsgData, 0, len(rows))
+			for _, row := range rows {
+				messages = append(messages, convert.MsgDB2Pb(row))
+			}
+			resp.Msgs[seq.ConversationID] = &sdkws.PullMsgs{Msgs: messages, IsEnd: isEnd}
+			continue
+		}
 		if !msgprocessor.IsNotification(seq.ConversationID) {
 			conversation, err := m.ConversationLocalCache.GetConversation(ctx, req.UserID, seq.ConversationID)
 			if err != nil {
@@ -90,11 +104,19 @@ func (m *msgServer) PullMessageBySeqs(ctx context.Context, req *sdkws.PullMessag
 }
 
 func (m *msgServer) GetSeqMessage(ctx context.Context, req *msg.GetSeqMessageReq) (*msg.GetSeqMessageResp, error) {
+	if err := authverify.CheckAccess(ctx, req.UserID); err != nil {
+		return nil, err
+	}
 	resp := &msg.GetSeqMessageResp{
 		Msgs:             make(map[string]*sdkws.PullMsgs),
 		NotificationMsgs: make(map[string]*sdkws.PullMsgs),
 	}
 	for _, conv := range req.Conversations {
+		if m.stableStore != nil && stablepolicy.Protected(conv.ConversationID) {
+			if err := m.stableStore.CheckParticipant(ctx, conv.ConversationID, req.UserID); err != nil {
+				return nil, err
+			}
+		}
 		isEnd, endSeq, msgs, err := m.MsgDatabase.GetMessagesBySeqWithBounds(ctx, req.UserID, conv.ConversationID, conv.Seqs, req.GetOrder())
 		if err != nil {
 			return nil, err
@@ -127,6 +149,22 @@ func (m *msgServer) GetMaxSeq(ctx context.Context, req *sdkws.GetMaxSeqReq) (*sd
 	conversationIDs, err := m.ConversationLocalCache.GetConversationIDs(ctx, req.UserID)
 	if err != nil {
 		return nil, err
+	}
+	if m.stableStore != nil {
+		stableIDs, e := m.stableStore.Conversations(ctx, req.UserID)
+		if e != nil {
+			return nil, e
+		}
+		seen := make(map[string]bool)
+		for _, id := range conversationIDs {
+			seen[id] = true
+		}
+		for _, id := range stableIDs {
+			if !seen[id] {
+				conversationIDs = append(conversationIDs, id)
+				seen[id] = true
+			}
+		}
 	}
 	for _, conversationID := range conversationIDs {
 		conversationIDs = append(conversationIDs, conversationutil.GetNotificationConversationIDByConversationID(conversationID))

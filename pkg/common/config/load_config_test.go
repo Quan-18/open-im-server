@@ -38,22 +38,23 @@ func TestLoadMongoConfig(t *testing.T) {
 
 func TestLoadMinioConfig(t *testing.T) {
 	var storageConfig Minio
-	err := Load("../../../config/minio.yml", "IMENV_MINIO", "", &storageConfig)
+	err := Load("../../../config/", "minio.yml", "IMENV_MINIO", &storageConfig)
 	assert.Nil(t, err)
 	assert.Equal(t, "openim", storageConfig.Bucket)
 }
 
 func TestLoadWebhooksConfig(t *testing.T) {
 	var webhooks Webhooks
-	err := Load("../../../config/webhooks.yml", "IMENV_WEBHOOKS", "", &webhooks)
+	err := Load("../../../config/", "webhooks.yml", "IMENV_WEBHOOKS", &webhooks)
 	assert.Nil(t, err)
 	assert.Equal(t, 5, webhooks.BeforeAddBlack.Timeout)
 
 }
 
 func TestLoadOpenIMRpcUserConfig(t *testing.T) {
+	t.Setenv("IMENV_OPENIM_RPC_USER_RPC_PORTS", "10110,10111,10112")
 	var user User
-	err := Load("../../../config/openim-rpc-user.yml", "IMENV_OPENIM_RPC_USER", "", &user)
+	err := Load("../../../config/", "openim-rpc-user.yml", "IMENV_OPENIM_RPC_USER", &user)
 	assert.Nil(t, err)
 	//export IMENV_OPENIM_RPC_USER_RPC_LISTENIP="0.0.0.0"
 	assert.Equal(t, "0.0.0.0", user.RPC.ListenIP)
@@ -63,14 +64,22 @@ func TestLoadOpenIMRpcUserConfig(t *testing.T) {
 
 func TestLoadNotificationConfig(t *testing.T) {
 	var noti Notification
-	err := Load("../../../config/notification.yml", "IMENV_NOTIFICATION", "", &noti)
+	err := Load("../../../config/", "notification.yml", "IMENV_NOTIFICATION", &noti)
 	assert.Nil(t, err)
 	assert.Equal(t, "Your friend's profile has been changed", noti.FriendRemarkSet.OfflinePush.Title)
 }
 
 func TestLoadOpenIMThirdConfig(t *testing.T) {
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_ENABLE", "enabled")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_ENDPOINT", "https://oss-cn-chengdu.aliyuncs.com")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_BUCKET", "my_bucket_name")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_BUCKETURL", "https://my_bucket_name.oss-cn-chengdu.aliyuncs.com")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_ACCESSKEYID", "AKID1234567890")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_ACCESSKEYSECRET", "abc123xyz789")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_SESSIONTOKEN", "session_token_value")
+	t.Setenv("IMENV_OPENIM_RPC_THIRD_OBJECT_OSS_PUBLICREAD", "true")
 	var third Third
-	err := Load("../../../config/openim-rpc-third.yml", "IMENV_OPENIM_RPC_THIRD", "", &third)
+	err := Load("../../../config/", "openim-rpc-third.yml", "IMENV_OPENIM_RPC_THIRD", &third)
 	assert.Nil(t, err)
 	assert.Equal(t, "enabled", third.Object.Enable)
 	assert.Equal(t, "https://oss-cn-chengdu.aliyuncs.com", third.Object.Oss.Endpoint)
@@ -86,7 +95,7 @@ func TestLoadOpenIMThirdConfig(t *testing.T) {
 
 func TestTransferConfig(t *testing.T) {
 	var tran MsgTransfer
-	err := Load("../../../config/openim-msgtransfer.yml", "IMENV_OPENIM-MSGTRANSFER", "", &tran)
+	err := Load("../../../config/", "openim-msgtransfer.yml", "IMENV_OPENIM-MSGTRANSFER", &tran)
 	assert.Nil(t, err)
 	assert.Equal(t, true, tran.Prometheus.Enable)
 	assert.Equal(t, true, tran.Prometheus.AutoSetPorts)
